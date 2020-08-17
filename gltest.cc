@@ -67,7 +67,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	Camera* pCam = reinterpret_cast<Camera*>(glfwGetWindowUserPointer(window));
 
 	vmath::vec3& cam_velocity = pCam->GetVelocity();
-	float speed = 1.0f, rspeed = 5.f;
+	float speed = 1.0f, rspeed = 3.f;
 	bool bPress = (action == GLFW_PRESS | action == GLFW_REPEAT);
 
 	switch(key)
@@ -145,6 +145,9 @@ int InitGL(GLFWwindow** ppWindow)
 		return -1;
 	}
 
+	glfwWindowHint(GLFW_SAMPLES, 4);
+	glEnable(GL_MULTISAMPLE);
+
 	*ppWindow = glfwCreateWindow(1024, 1024, "Projection Test", NULL, NULL);
 	if (!*ppWindow)
 	{
@@ -211,7 +214,7 @@ int main()
 
 	glfwSetWindowUserPointer(window, &camera);
 
-	Object axesobj, stars_obj, edges_obj;
+	Object axesobj(GL_LINES), stars_obj(GL_POINTS), edges_obj(GL_LINES);
 
 	edges_obj.SetObjectTransform(vmath::scale(2.f, 2.f, 2.f));
 	stars_obj.SetObjectTransform(vmath::scale(2.f, 2.f, 2.f));
@@ -233,7 +236,7 @@ int main()
 	vmath::Tquaternion<float> rotation =
 		vmath::Tquaternion<float>(0.f, 1.f * sin(theta/2.f), 0.f, 1.f * cos(theta/2.f));
 	vmath::Tquaternion<float> inverse = rotation.inverse();
-	//vmath::Tquaternion<float>(0.f, -1.f * sin(theta/2.f), 0.f, 1.f * cos(theta/2.f));
+
 	printf("%f %f %f %f\n", rotation[0], rotation[1], rotation[2], rotation[3]);
 	printf("%f %f %f %f\n", inverse[0], inverse[1], inverse[2], inverse[3]);
 
@@ -278,6 +281,11 @@ int main()
 	float rps = 120.f * (PI/180.f); //radians per second
 	char titlebuf[512] = {0};
 
+	std::vector<Object*> scene_objs;
+	scene_objs.push_back(&axesobj);
+	scene_objs.push_back(&stars_obj);
+	//scene_objs.push_back(&edges_obj);
+
 	while(!glfwWindowShouldClose(window))
 	{
 		clock_gettime(CLOCK_MONOTONIC, &t_a);
@@ -286,17 +294,12 @@ int main()
 		// wipe the drawing surface clear
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		axesobj.Draw(&camera);
-		stars_obj.Draw(&camera, GL_POINTS);
-		edges_obj.Draw(&camera, GL_LINES);
-
-		axesobj.Rotate(rotation, inverse);
-		stars_obj.Rotate(rotation, inverse);
-		edges_obj.Rotate(rotation, inverse);
-
-		axesobj.UpdateBuffer();
-		stars_obj.UpdateBuffer();
-		edges_obj.UpdateBuffer();
+		for(Object* pObj : scene_objs)
+		{
+			pObj->Draw(&camera);
+			pObj->Rotate(rotation, inverse);
+			pObj->UpdateBuffer();
+		}
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();

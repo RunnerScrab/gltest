@@ -52,7 +52,10 @@ std::string GetShaderErrorMsg(GLuint hShader)
 	return retval;
 }
 
-Object::Object() : m_shader_program(0), m_vbo_reserved(0)
+Object::Object(GLuint drawmode) :
+	m_shader_program(0),
+	m_vbo_reserved(0),
+	m_drawmode(drawmode)
 {
 	glGenBuffers(1, &m_vbo_vertices);
 	glGenVertexArrays(1, &m_vao);
@@ -113,8 +116,7 @@ void Object::InitBuffer()
 	glBindVertexArray(0);
 }
 
-void Object::Draw(const Camera* pCamera,
-		  GLint mode)
+void Object::Draw(const Camera* pCamera)
 {
 	glUseProgram(m_shader_program);
 
@@ -125,7 +127,7 @@ void Object::Draw(const Camera* pCamera,
 			   pCamera->GetProjectionTransform());
 
 	glBindVertexArray(m_vao);
-	glDrawArrays(mode, 0, m_data.size());
+	glDrawArrays(m_drawmode, 0, m_data.size());
 	glBindVertexArray(0);
 
 	glUseProgram(0);

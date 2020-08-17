@@ -13,7 +13,7 @@ class Camera;
 class Object
 {
 public:
-	Object();
+	Object(GLuint drawmode = GL_LINES);
 	~Object();
 
 	void AddVertex(const vmath::vec4& v, const vmath::Tvec4<unsigned char>& c);
@@ -40,8 +40,7 @@ public:
 		return m_data;
 	}
 
-	void Draw(const Camera* pCamera,
-		GLint mode = GL_LINES);
+	void Draw(const Camera* pCamera);
 
 	GLuint GetShaderProgram() const
 	{
@@ -56,6 +55,8 @@ private:
 	GLuint m_vao;
 	GLuint m_shader_program;
 	GLuint m_model_location, m_proj_location, m_view_location;
+
+	GLuint m_drawmode;
 
 	size_t m_vbo_reserved;
 };
