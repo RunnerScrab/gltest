@@ -1,4 +1,4 @@
-CXX = g++ -g
+CXX = g++ -O3
 CXXFLAGS = -mfma
 LDLIBS = -lm -lGL -lglfw -lGLEW
 

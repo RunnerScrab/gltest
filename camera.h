@@ -38,10 +38,21 @@ public:
 	{
 		return m_proj;
 	}
+
+	vmath::vec3& GetVelocity()
+	{
+		return m_velocity;
+	}
+
+	float* GetRotSpeed()
+	{
+		return &m_radians_ps;
+	}
 private:
-	vmath::vec3 m_up, m_target, m_eye;
+	vmath::vec3 m_up, m_target, m_eye, m_velocity;
 	vmath::mat4 m_view, m_proj;
 	float m_zfar, m_znear;
+	float m_radians_ps;
 };
 
 

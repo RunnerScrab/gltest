@@ -66,30 +66,34 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	vmath::mat4* p = (vmath::mat4*) glfwGetWindowUserPointer(window);
 	Camera* pCam = reinterpret_cast<Camera*>(glfwGetWindowUserPointer(window));
 
-	if(action == GLFW_PRESS)
+	vmath::vec3& cam_velocity = pCam->GetVelocity();
+	float speed = 1.0f, rspeed = 5.f;
+	bool bPress = (action == GLFW_PRESS | action == GLFW_REPEAT);
+
+	switch(key)
 	{
-		switch(key)
-		{
-		case GLFW_KEY_D:
-			pCam->Move(vmath::vec3(0.1f, 0.f, 0.f));
-			break;
-		case GLFW_KEY_A:
-			pCam->Move(vmath::vec3(-0.1f, 0.f, 0.f));
-			break;
-		case GLFW_KEY_W:
-			pCam->Move(vmath::vec3(0.f, 0.1f, 0.f));
-			break;
-		case GLFW_KEY_S:
-			pCam->Move(vmath::vec3(0.f, -0.1f, 0.f));
-			break;
-		case GLFW_KEY_E:
-			pCam->Move(vmath::vec3(0.f, 0.f, 0.1f));
-			break;
-		case GLFW_KEY_Q:
-			pCam->Move(vmath::vec3(0.f, 0.f, -0.1f));
-			break;
-		}
-		pCam->LookAt(vmath::vec3(0.f, 0.f, 0.f));
+	case GLFW_KEY_D:
+		//cam_velocity[0] = bPress ? speed : 0.f;
+		*(pCam->GetRotSpeed()) = bPress ? rspeed : 0.f;
+		break;
+	case GLFW_KEY_A:
+		//cam_velocity[0] = bPress ? -speed : 0.f;
+		*(pCam->GetRotSpeed()) = bPress ? -rspeed : 0.f;
+		break;
+	case GLFW_KEY_W:
+		cam_velocity[2] = bPress ? speed : 0.f;
+		break;
+	case GLFW_KEY_S:
+		cam_velocity[2] = bPress ? -speed : 0.f;
+		break;
+	case GLFW_KEY_E:
+		cam_velocity[1] = bPress ? speed : 0.f;
+		break;
+	case GLFW_KEY_Q:
+		cam_velocity[1] = bPress ? -speed : 0.f;
+		break;
+	default:
+		break;
 	}
 }
 
@@ -300,14 +304,16 @@ int main()
 		clock_gettime(CLOCK_MONOTONIC, &t_b);
 		t_del = TimeDiffSecs(&t_b, &t_a);
 
-		float dr = (t_del * rps)/2.f;
+		float dr = (t_del * (*camera.GetRotSpeed()))/2.f;
 		rotation[1] = sin(dr); //Adjust rotation amount for time delta
 		rotation[3] = cos(dr);
 		inverse[1] = -rotation[1];
 		inverse[3] = rotation[3];
+		camera.Move(camera.GetVelocity() * t_del);
+		camera.LookAt(vmath::vec3(0.f, 0.f, 0.f));
 
-		snprintf(titlebuf, 512, "%f", t_del);
-		glfwSetWindowTitle(window, titlebuf);
+		//snprintf(titlebuf, 512, "%f", t_del);
+		//glfwSetWindowTitle(window, titlebuf);
 	}
 
 	printf("Terminating!\n");
@@ -365,7 +371,6 @@ void GenerateGrid(Object& obj, int density)
 					      color);
 				obj.AddVertex(vmath::vec4(x2, y2, z2, 1.f),
 					      color);
-
 			}
 		}
 	}
