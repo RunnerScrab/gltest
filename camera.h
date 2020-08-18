@@ -13,6 +13,9 @@ public:
 		m_eye += offset;
 	}
 
+       	void Rotate(const vmath::Tquaternion<float>& rotation,
+		    const vmath::Tquaternion<float>& inverse);
+
 	void SetPosition(const vmath::vec3& pos)
 	{
 		m_eye = pos;

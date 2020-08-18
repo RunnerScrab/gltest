@@ -3,13 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <immintrin.h>
-#include <smmintrin.h>
-
-#define qx(q) q[0]
-#define qy(q) q[1]
-#define qz(q) q[2]
-#define qw(q) q[3]
+#include "ssemath.h"
 
 static size_t GetFileLength(FILE *fp)
 {
@@ -119,13 +113,13 @@ void Object::InitBuffer()
 void Object::Draw(const Camera* pCamera)
 {
 	glUseProgram(m_shader_program);
-
-	glUniformMatrix4fv(m_model_location, 1, GL_FALSE, m_modeltransform);
-
-	glUniformMatrix4fv(m_view_location, 1, GL_FALSE, pCamera->GetViewTransform());
-	glUniformMatrix4fv(m_proj_location, 1, GL_FALSE,
-			   pCamera->GetProjectionTransform());
-
+	vmath::mat4 combinedmat = pCamera->GetProjectionTransform() *
+		pCamera->GetViewTransform() * m_modeltransform;
+	//glUniformMatrix4fv(m_model_location, 1, GL_FALSE, m_modeltransform);
+	//glUniformMatrix4fv(m_view_location, 1, GL_FALSE, pCamera->GetViewTransform());
+	//glUniformMatrix4fv(m_proj_location, 1, GL_FALSE,
+	//		   pCamera->GetProjectionTransform());
+	glUniformMatrix4fv(m_combined_location, 1, GL_FALSE, combinedmat);
 	glBindVertexArray(m_vao);
 	glDrawArrays(m_drawmode, 0, m_data.size());
 	glBindVertexArray(0);
@@ -175,80 +169,37 @@ bool Object::LoadShaders(const char* vertfn, const char* fragfn)
 	m_model_location = glGetUniformLocation(m_shader_program, "modelMat");
 	m_proj_location = glGetUniformLocation(m_shader_program, "projMat");
 	m_view_location = glGetUniformLocation(m_shader_program, "viewMat");
-
+	m_combined_location = glGetUniformLocation(m_shader_program,  "projviewmodelMat");
 	return true;
-}
-
- __m128 SSECrossProduct(__m128 vec_a, __m128 vec_b)
-{
-	__m128 sh_a = _mm_shuffle_ps(vec_a, vec_a, _MM_SHUFFLE(3, 0, 2, 1));
-	__m128 sh_b = _mm_shuffle_ps(vec_b, vec_b, _MM_SHUFFLE(3, 0, 2, 1));
-	__m128 result = _mm_sub_ps(_mm_mul_ps(vec_a, sh_b), _mm_mul_ps(vec_b, sh_a));
-	return _mm_shuffle_ps(result, result, _MM_SHUFFLE(3, 0, 2, 1));
-}
-
-void sse_quat_applyrot(const float* a, const float* b, float* out)
-{
-	//This is substantially faster than SISD
-	__m128 vec_b = _mm_load_ps(b);
-	__m128 w_a = _mm_load_ps1(&qw(a));
-	__m128 proda = _mm_mul_ps(vec_b, w_a);
-	__m128 vec_a = _mm_load_ps(a);
-	__m128 w_b = _mm_load_ps1(&qw(b));
-	__m128 prodb = _mm_mul_ps(vec_a, w_b);
-	__m128 result = _mm_add_ps(proda, prodb);
-	__m128 xprod = SSECrossProduct(vec_a, vec_b);
-
-	__m128 vec_pq =  _mm_add_ps(result, xprod);
-	__m128 w_pq =_mm_sub_ps(_mm_mul_ps(w_a, w_b), _mm_dp_ps(vec_a, vec_b, 0x77));
-
-	__m128 prodpq = _mm_mul_ps(vec_a, w_pq);
-	proda = _mm_mul_ps(vec_pq, w_a);
-	result = _mm_sub_ps(prodpq, proda);
-	xprod = SSECrossProduct(vec_a, vec_pq);
-	_mm_store_ps(out, _mm_sub_ps(result, xprod));
-	qw(out) = _mm_cvtss_f32(_mm_add_ps(_mm_mul_ps(w_a, w_pq), _mm_dp_ps(vec_a, vec_pq, 0x77)));
-}
-
-void sse_quat_mul(const float* a, const float* b, float* out)
-{
-	//Performance is marginally better than SISD
-	__m128 vec_b = _mm_load_ps(b);
-	__m128 w_a = _mm_load_ps1(&qw(a));
-	__m128 proda = _mm_mul_ps(vec_b, w_a);
-	__m128 vec_a = _mm_load_ps(a);
-	__m128 w_b = _mm_load_ps1(&qw(b));
-	__m128 prodb = _mm_mul_ps(vec_a, w_b);
-
-	__m128 result = _mm_add_ps(proda, prodb);
-	__m128 xprod = SSECrossProduct(vec_a, vec_b);
-	_mm_store_ps(out, _mm_add_ps(result, xprod));
-	float dp = _mm_cvtss_f32(_mm_dp_ps(vec_a, vec_b, 0x77));
-	qw(out) = qw(a)*qw(b) - dp;
-}
-
-void PrintQuat(float* quat, const char* str)
-{
-	printf("%10s: %f %f %f %f\n", str, quat[0], quat[1], quat[2], quat[3]);
 }
 
 void Object::Rotate(const vmath::Tquaternion<float>& rotation,
 		    const vmath::Tquaternion<float>& inverse)
 {
+	/*
+	I can rotate the object's vertices in model space using quaternions,
+	but not really in world?
+
 	float rot[4], inv[4], r[4];
 	memcpy(rot, &rotation[0], 4 * sizeof(float));
 	memcpy(inv, &inverse[0], 4 * sizeof(float));
 
 	for(int idx = 0, z = m_data.size(); idx < z; ++idx)
 	{
-		/*
-		m_data[idx].vertex = rotation * m_data[idx].vertex * inverse;
-		*/
+
+		  //m_data[idx].vertex = rotation * m_data[idx].vertex * inverse;
+
 		float vert[4];
 		memcpy(vert, &m_data[idx].vertex[0], 4 * sizeof(float));
 		sse_quat_mul(rot, vert, r);
 		sse_quat_mul(r, inv, vert);
 		memcpy(&m_data[idx].vertex[0], vert, sizeof(float) * 4);
 
-	}
+	}*/
+	m_modeltransform = rotation.asMatrix() * m_modeltransform;
+}
+
+void Object::Move(const vmath::vec3& offset)
+{
+	m_modeltransform = vmath::translate(offset) * m_modeltransform;
 }

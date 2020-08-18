@@ -29,7 +29,7 @@ public:
 
 	void Rotate(const vmath::Tquaternion<float>& rotation,
 		const vmath::Tquaternion<float>& inverse);
-
+	void Move(const vmath::vec3& offset);
 	void ClearVerts()
 	{
 		m_data.clear();
@@ -55,7 +55,7 @@ private:
 	GLuint m_vao;
 	GLuint m_shader_program;
 	GLuint m_model_location, m_proj_location, m_view_location;
-
+	GLuint m_combined_location;
 	GLuint m_drawmode;
 
 	size_t m_vbo_reserved;

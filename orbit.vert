@@ -19,7 +19,7 @@ float InvSquare(vec3 v)
 void main()
 {
 	gl_Position =  projviewmodelMat * vp;
-	float str = InvSquare(vec3(vp.x, vp.y, vp.z));
+	float str = 1.f;
 
 	color = vec4((incol[0]/255.0) * str,
 		(incol[1]/255.0) * str,

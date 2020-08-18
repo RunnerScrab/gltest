@@ -8,13 +8,14 @@
 
 #include <time.h>
 
-#include <GL/glew.h> // include GLEW and new version of GL on Windows
-#include <GLFW/glfw3.h> // GLFW helper library
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
 
 #include <xmmintrin.h>
 #include <immintrin.h>
 #include <smmintrin.h>
 
+#include "ssemath.h"
 #include "vmath.h"
 #include "vertex.h"
 #include "object.h"
@@ -61,10 +62,18 @@ void printmat4(GLfloat* mat)
 	printf("\n");
 }
 
+struct Simulation
+{
+	Camera* pCamera;
+	Object* pStarsObj;
+};
+
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-	vmath::mat4* p = (vmath::mat4*) glfwGetWindowUserPointer(window);
-	Camera* pCam = reinterpret_cast<Camera*>(glfwGetWindowUserPointer(window));
+	struct Simulation* pSim =
+		reinterpret_cast<struct Simulation*>(glfwGetWindowUserPointer(window));
+	Camera* pCam = pSim->pCamera;
+	Object* pStars = pSim->pStarsObj;
 
 	vmath::vec3& cam_velocity = pCam->GetVelocity();
 	float speed = 1.0f, rspeed = 3.f;
@@ -73,11 +82,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	switch(key)
 	{
 	case GLFW_KEY_D:
-		//cam_velocity[0] = bPress ? speed : 0.f;
 		*(pCam->GetRotSpeed()) = bPress ? rspeed : 0.f;
 		break;
 	case GLFW_KEY_A:
-		//cam_velocity[0] = bPress ? -speed : 0.f;
 		*(pCam->GetRotSpeed()) = bPress ? -rspeed : 0.f;
 		break;
 	case GLFW_KEY_W:
@@ -91,6 +98,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		break;
 	case GLFW_KEY_Q:
 		cam_velocity[1] = bPress ? -speed : 0.f;
+	case GLFW_KEY_F:
+		pStars->AddVertex(vmath::vec4(0.f, 0.f, 0.f, 1.f),
+				  vmath::Tvec4<unsigned char>(255, 255, 0, 255));
 		break;
 	default:
 		break;
@@ -185,17 +195,136 @@ void ReleaseGL(GLFWwindow* pWindow)
 	glfwTerminate();
 }
 
+RandGen g_randgen;
+
+void Ellipse(float* x, float* y, float* z, float t,
+	     float a, float b, float cx, float cy, float cz,
+	     const vmath::Tquaternion<float>& rot
+	)
+{
+	vmath::vec4 coord(
+		(a * cos(t)),
+		0.f,
+		(b * sin(t)),
+		0.f
+		);
+	coord = rot * coord * rot.inverse();
+	*x = coord[0] + cx;
+	*y = coord[1] + cy;
+	*z = coord[2] + cz;
+}
+
+struct Planetoid
+{
+	Planetoid(float x, float y, float z,
+		  unsigned char cr, unsigned char cg, unsigned char cb,
+		  float lasta)
+	{
+		float theta = (g_randgen.RandDouble(15) * PI)/180.f;
+		vmath::vec3 randuv(
+			g_randgen.RandDouble(50),
+			g_randgen.RandDouble(50),
+			g_randgen.RandDouble(50)
+			);
+		randuv = vmath::normalize(randuv);
+
+		float stf = sin(theta/2.f);
+		rot = vmath::Tquaternion<float>(
+			randuv[0] * stf,
+			randuv[1] * stf,
+			randuv[2] * stf,
+			1.f * cos(theta/2.f));
+		invrot = rot.inverse();
+
+		bool bNeg = (g_randgen.PRNG64() & 255) > 128;
+		anglerate = (PI/180.f) * (g_randgen.RandDouble(30) + 5.f) * (bNeg ? -1.f : 1.f);
+		float first = g_randgen.RandDouble(5)/100.f + 0.02f + lasta;
+		float second = first + g_randgen.RandDouble(3)/100.f;
+
+		bool bFlip = (g_randgen.PRNG64() & 255) > 128;
+		a = bFlip ? first : second;
+		b = bFlip ? second : first;
+
+		c = g_randgen.RandDouble(10)/100.f + 0.05f + lasta;//a + (g_randgen.RandDouble(10)/100.f) - 0.05f;
+
+		//phi = g_randgen.RandDouble(30) * (PI/180.f);
+
+		t = (float) g_randgen.RandDouble(157)/100.f;
+		Ellipse(&sx, &sy, &sz, t, a, b, x, y, z, rot);
+
+		red = cr;
+		green = cg;
+		blue = cb;
+		alpha = 255;
+	}
+
+	void CalculateOffset(float t_del, vmath::vec3& offset)
+	{
+		float dtheta = t_del * anglerate;
+		//Use derivative of ellipse equation
+		vmath::Tquaternion<float> off(
+			a * -sin(t) * dtheta,
+			0.f * dtheta,
+			b * cos(t) * dtheta,
+			1.f);
+
+		vmath::vec4 result = rot * off * invrot;
+		/*
+		float off[4] = {
+			a * -sin(t) * dtheta,
+			0.f * dtheta,
+			b * cos(t) * dtheta,
+			1.f};
+		float result[4], temp[4];
+		sse_quat_mul(&rot[0], off, temp);
+		sse_quat_mul(temp, &invrot[0], result);
+		*/
+		offset[0] = result[0];
+		offset[1] = result[1];
+		offset[2] = result[2];
+		t += dtheta;
+	}
+
+	float sx, sy, sz;
+	float a, b, c, phi, t, anglerate;
+	unsigned char red, green, blue, alpha;
+	vmath::Tquaternion<float> rot, invrot;
+};
+
+void CreateEllipse(Object& obj, float ox, float oy, float oz,
+		   float a, float b, float c,
+		   float phi, vmath::Tquaternion<float>& rot)
+{
+	int segments = 32;
+	constexpr float TWOPI = PI * 2.f;
+	unsigned char cval = 64;
+	for(int idx = 1; idx <= segments; ++idx)
+	{
+		float t = (TWOPI/segments) * idx;
+		float x = 0.f, y = 0.f, z = 0.f;
+		Ellipse(&x, &y, &z, t, a, b, ox, oy, oz, rot);
+		obj.AddVertex(vmath::vec4(x, y, z, 1.f),
+			      vmath::Tvec4<unsigned char>(cval, cval, cval, 255)
+			);
+
+		t = (TWOPI/segments) * (idx - 1);
+		Ellipse(&x, &y, &z, t, a, b, ox, oy, oz, rot);
+
+		obj.AddVertex(vmath::vec4(x, y, z, 1.f),
+			      vmath::Tvec4<unsigned char>(cval, cval, cval, 255)
+			);
+	}
+}
+
 int main()
 {
-	RandGen randgen;
+
 	GLFWwindow* window = 0;
 	if(InitGL(&window) < 0)
 	{
 		fprintf(stderr, "Initialization failed.\n");
 		return 0;
 	}
-
-	vmath::mat4 scale = vmath::scale(2.f, 2.f, 2.f);
 
 	struct Vertex axes[6] = {
 		{{255, 0, 0, 255}, {-1.f, 0.f, 0.f, 1.f}},
@@ -209,16 +338,25 @@ int main()
 	};
 
 	Camera camera;
-	camera.SetPosition(vmath::vec3(0.f, 0.f, -2.f));
+	camera.SetPosition(vmath::vec3(0.f, 1.f, -2.f));
 	camera.LookAt(vmath::vec3(0.f, 0.f, 0.f));
 
-	glfwSetWindowUserPointer(window, &camera);
-
 	Object axesobj(GL_LINES), stars_obj(GL_POINTS), edges_obj(GL_LINES);
+	Object planetoidobj(GL_POINTS);
+	Object orbitsobj(GL_LINES);
 
-	edges_obj.SetObjectTransform(vmath::scale(2.f, 2.f, 2.f));
-	stars_obj.SetObjectTransform(vmath::scale(2.f, 2.f, 2.f));
-	axesobj.SetObjectTransform(vmath::scale(2.f, 2.f, 2.f));
+
+	struct Simulation sim;
+	sim.pCamera = &camera;
+	sim.pStarsObj = &stars_obj;
+	glfwSetWindowUserPointer(window, &sim);
+
+	vmath::mat4 scale = vmath::scale(1.f, 1.f, 1.f);
+	edges_obj.SetObjectTransform(scale);
+	stars_obj.SetObjectTransform(scale);
+	axesobj.SetObjectTransform(scale);
+	planetoidobj.SetObjectTransform(scale);
+	orbitsobj.SetObjectTransform(scale);
 
 	GenerateGrid(axesobj);
 
@@ -239,16 +377,62 @@ int main()
 
 	printf("%f %f %f %f\n", rotation[0], rotation[1], rotation[2], rotation[3]);
 	printf("%f %f %f %f\n", inverse[0], inverse[1], inverse[2], inverse[3]);
+	std::vector<Planetoid> planetoids;
 
-	for(int idx = 0; idx < 32; ++idx)
+
+	std::vector<vmath::vec3> others;
+	float mindist = 0.6f; //minimum distance between stars
+	for(int idx = 0; idx < 12; ++idx)
 	{
-		float x = randgen.RandDouble(200)/100.f - 1.f;
-		float y = randgen.RandDouble(200)/100.f - 1.f;
-		float z = randgen.RandDouble(200)/100.f - 1.f;
+		float x = g_randgen.RandDouble(200)/100.f - 1.f;
+		float y = g_randgen.RandDouble(200)/100.f - 1.f;
+		float z = g_randgen.RandDouble(200)/100.f - 1.f;
+		vmath::vec3 testpoint(x, y, z);
+		float closest = -1.f;
+		for(int i = 0; i < others.size(); ++i)
+		{
+			float dist = vmath::distance(others[i], testpoint);
+			if(closest < 0.f || dist < closest)
+			{
+				closest = dist;
+			}
+		}
+		if(closest >= 0.f && closest <= mindist)
+		{
+			printf("%f < %f\n", closest, mindist);
+			continue;
+		}
 
+		unsigned char red = (g_randgen.PRNG64() + 128) & 255;
+		unsigned char green = (g_randgen.PRNG64() + 128) & 255;
+		unsigned char blue = (g_randgen.PRNG64() + 128) & 255;
+
+		others.emplace_back(vmath::vec3(x, y, z));
 		stars_obj.AddVertex(vmath::vec4(x, y, z, 1.f),
-				    vmath::Tvec4<unsigned char>(255, 255, 255, 255));
+				    vmath::Tvec4<unsigned char>(red, green, blue, 255));
+		int numplanets = (int) g_randgen.RandDouble(7) + 1;
+		float lasta = 0.05f;
+		for(int i = 0; i < numplanets; ++i)
+		{
+			Planetoid planet(x, y, z, red, green, blue, lasta);
+			planetoids.emplace_back(planet);
+			planetoidobj.AddVertex(vmath::vec4(planet.sx, planet.sy, planet.sz, 1.f),
+					       vmath::Tvec4<unsigned char>(planet.red,
+									   planet.green,
+									   planet.blue,
+									   planet.alpha)
+				);
+			CreateEllipse(orbitsobj, x, y, z,
+				      planet.a, planet.b, planet.c,
+				      planet.phi, planet.rot);
+			lasta = planet.a;
+		}
 	}
+
+		orbitsobj.InitBuffer();
+	orbitsobj.LoadShaders("orbit.vert", "axes.frag");
+	planetoidobj.InitBuffer();
+	planetoidobj.LoadShaders("planetoid.vert", "stars.frag");
 
 	Graph star_graph(stars_obj.GetVerts());
 	star_graph.ConnectMST();
@@ -284,8 +468,11 @@ int main()
 	std::vector<Object*> scene_objs;
 	scene_objs.push_back(&axesobj);
 	scene_objs.push_back(&stars_obj);
+	scene_objs.push_back(&orbitsobj);
 	//scene_objs.push_back(&edges_obj);
+	//scene_objs.push_back(&planetoidobj);
 
+	std::vector<Vertex>& verts = planetoidobj.GetVerts();
 	while(!glfwWindowShouldClose(window))
 	{
 		clock_gettime(CLOCK_MONOTONIC, &t_a);
@@ -297,9 +484,12 @@ int main()
 		for(Object* pObj : scene_objs)
 		{
 			pObj->Draw(&camera);
-			pObj->Rotate(rotation, inverse);
+			//pObj->Rotate(rotation, inverse);
 			pObj->UpdateBuffer();
 		}
+
+		planetoidobj.Draw(&camera);
+		//planetoidobj.Rotate(rotation, inverse);
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
@@ -307,16 +497,30 @@ int main()
 		clock_gettime(CLOCK_MONOTONIC, &t_b);
 		t_del = TimeDiffSecs(&t_b, &t_a);
 
+
+		std::vector<Vertex>& planetverts = planetoidobj.GetVerts();
+		vmath::vec3 offset;
+		for(int i = 0; i < planetoids.size(); ++i)
+		{
+			planetoids[i].CalculateOffset(t_del, offset);
+			planetverts[i].vertex[0] += offset[0];
+			planetverts[i].vertex[1] += offset[1];
+			planetverts[i].vertex[2] += offset[2];
+		}
+		planetoidobj.UpdateBuffer();
+
+
 		float dr = (t_del * (*camera.GetRotSpeed()))/2.f;
 		rotation[1] = sin(dr); //Adjust rotation amount for time delta
 		rotation[3] = cos(dr);
 		inverse[1] = -rotation[1];
 		inverse[3] = rotation[3];
 		camera.Move(camera.GetVelocity() * t_del);
+		camera.Rotate(rotation, inverse);
 		camera.LookAt(vmath::vec3(0.f, 0.f, 0.f));
 
-		//snprintf(titlebuf, 512, "%f", t_del);
-		//glfwSetWindowTitle(window, titlebuf);
+		snprintf(titlebuf, 512, "frame time: %fs", t_del);
+		glfwSetWindowTitle(window, titlebuf);
 	}
 
 	printf("Terminating!\n");

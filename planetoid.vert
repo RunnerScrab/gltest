@@ -20,7 +20,7 @@ void main()
 {
 	gl_Position =  projviewmodelMat * vp;
 	float str = InvSquare(vec3(gl_Position.x, gl_Position.y, gl_Position.z)) + 0.4;
-	gl_PointSize = 8.0 + (str * 3.0);
+	gl_PointSize = 1.0 + (str * 3.0);
 	color = vec4((incol[0]/255.0),
 		(incol[1]/255.0),
 		(incol[2]/255.0),

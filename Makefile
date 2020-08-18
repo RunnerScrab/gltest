@@ -1,10 +1,11 @@
-CXX = g++ -O3
+CXX = g++ -g
 CXXFLAGS = -mfma
 LDLIBS = -lm -lGL -lglfw -lGLEW
 
-gltest: gltest.o object.o camera.o graph.o
+gltest: gltest.o object.o camera.o graph.o ssemath.o
 	${CXX} $^ -o gltest ${LDLIBS}
 
+ssemath.o: ssemath.cc
 graph.o: graph.cc
 gltest.o: gltest.cc
 camera.o: camera.cc
