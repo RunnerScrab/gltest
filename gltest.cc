@@ -76,28 +76,31 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	Object* pStars = pSim->pStarsObj;
 
 	vmath::vec3& cam_velocity = pCam->GetVelocity();
-	float speed = 1.0f, rspeed = 3.f;
+	float speed = 1.0f, rspeed = 45.f;
 	bool bPress = (action == GLFW_PRESS | action == GLFW_REPEAT);
 
 	switch(key)
 	{
 	case GLFW_KEY_D:
-		*(pCam->GetRotSpeed()) = bPress ? rspeed : 0.f;
+		*(pCam->GetYawSpeed()) = bPress ? -rspeed : 0.f;
 		break;
 	case GLFW_KEY_A:
-		*(pCam->GetRotSpeed()) = bPress ? -rspeed : 0.f;
+		*(pCam->GetYawSpeed()) = bPress ? rspeed : 0.f;
 		break;
 	case GLFW_KEY_W:
-		cam_velocity[2] = bPress ? speed : 0.f;
+		cam_velocity = bPress ? (speed * pCam->GetLookVector()) : (0.f * cam_velocity);
 		break;
 	case GLFW_KEY_S:
-		cam_velocity[2] = bPress ? -speed : 0.f;
+		cam_velocity = bPress ? (-speed * pCam->GetLookVector()) : (0.f * cam_velocity);
 		break;
 	case GLFW_KEY_E:
-		cam_velocity[1] = bPress ? speed : 0.f;
+		//cam_velocity[1] = bPress ? speed : 0.f;
+		*(pCam->GetPitchSpeed()) = bPress ? -rspeed : 0.f;
 		break;
 	case GLFW_KEY_Q:
-		cam_velocity[1] = bPress ? -speed : 0.f;
+		//cam_velocity[1] = bPress ? -speed : 0.f;
+		*(pCam->GetPitchSpeed()) = bPress ? rspeed : 0.f;
+		break;
 	case GLFW_KEY_F:
 		pStars->AddVertex(vmath::vec4(0.f, 0.f, 0.f, 1.f),
 				  vmath::Tvec4<unsigned char>(255, 255, 0, 255));
@@ -116,6 +119,7 @@ public:
 		clock_gettime(CLOCK_REALTIME, &ts);
 		m_seed = ts.tv_sec << 32 | ts.tv_nsec;
 		srandom(ts.tv_sec | ts.tv_nsec);
+		m_wyhash64 = 0xFeedFaceDeadBeef; //This is the seed
 	}
 
 	u_int64_t PRNG64()
@@ -209,6 +213,9 @@ void Ellipse(float* x, float* y, float* z, float t,
 		0.f
 		);
 	coord = rot * coord * rot.inverse();
+
+	//Perform quaternion rotation while vector is at origin,
+	//then translate for offset
 	*x = coord[0] + cx;
 	*y = coord[1] + cy;
 	*z = coord[2] + cz;
@@ -220,7 +227,7 @@ struct Planetoid
 		  unsigned char cr, unsigned char cg, unsigned char cb,
 		  float lasta)
 	{
-		float theta = (g_randgen.RandDouble(15) * PI)/180.f;
+		float theta = ((g_randgen.RandDouble(20) - 10.f) * PI)/180.f;
 		vmath::vec3 randuv(
 			g_randgen.RandDouble(50),
 			g_randgen.RandDouble(50),
@@ -270,14 +277,14 @@ struct Planetoid
 
 		vmath::vec4 result = rot * off * invrot;
 		/*
-		float off[4] = {
-			a * -sin(t) * dtheta,
-			0.f * dtheta,
-			b * cos(t) * dtheta,
-			1.f};
-		float result[4], temp[4];
-		sse_quat_mul(&rot[0], off, temp);
-		sse_quat_mul(temp, &invrot[0], result);
+		  float off[4] = {
+		  a * -sin(t) * dtheta,
+		  0.f * dtheta,
+		  b * cos(t) * dtheta,
+		  1.f};
+		  float result[4], temp[4];
+		  sse_quat_mul(&rot[0], off, temp);
+		  sse_quat_mul(temp, &invrot[0], result);
 		*/
 		offset[0] = result[0];
 		offset[1] = result[1];
@@ -374,6 +381,9 @@ int main()
 	vmath::Tquaternion<float> rotation =
 		vmath::Tquaternion<float>(0.f, 1.f * sin(theta/2.f), 0.f, 1.f * cos(theta/2.f));
 	vmath::Tquaternion<float> inverse = rotation.inverse();
+	vmath::Tquaternion<float> pitchrot =
+		vmath::Tquaternion<float>(1.f * sin(theta/2.f), 0.f, 0.f, 1.f * cos(theta/2.f));
+	vmath::Tquaternion<float> invpitchrot = pitchrot.inverse();
 
 	printf("%f %f %f %f\n", rotation[0], rotation[1], rotation[2], rotation[3]);
 	printf("%f %f %f %f\n", inverse[0], inverse[1], inverse[2], inverse[3]);
@@ -510,17 +520,49 @@ int main()
 		planetoidobj.UpdateBuffer();
 
 
-		float dr = (t_del * (*camera.GetRotSpeed()))/2.f;
-		rotation[1] = sin(dr); //Adjust rotation amount for time delta
-		rotation[3] = cos(dr);
-		inverse[1] = -rotation[1];
-		inverse[3] = rotation[3];
-		camera.Move(camera.GetVelocity() * t_del);
-		camera.Rotate(rotation, inverse);
-		camera.LookAt(vmath::vec3(0.f, 0.f, 0.f));
+		//HACK: Don't compare a float for equality
+		if(*camera.GetYawSpeed() != 0.f) [[unlikely]]
+		{
+			float dr = (t_del * (*camera.GetYawSpeed()))/2.f;
+			rotation[1] = sin(dr * PI/180.f);
+			rotation[3] = cos(dr * PI/180.f);
+			inverse[1] = -rotation[1];
+			inverse[3] = rotation[3];
+			/*
+			vmath::vec3 localy(vmath::cross(camera.GetLookVector(),
+							camera.GetLeftVector()
+						   )
+				);
 
-		snprintf(titlebuf, 512, "frame time: %fs", t_del);
-		glfwSetWindowTitle(window, titlebuf);
+			localy = vmath::normalize(localy);
+			rotation[0] = localy[0] * sin(dr * PI/180.f);
+			rotation[1] = localy[1] * sin(dr * PI/180.f); //Adjust rotation amount for time delta
+			rotation[2] = localy[2] * sin(dr * PI/180.f);
+			rotation[3] = cos(dr * PI/180.f);
+
+			inverse = rotation.inverse();
+			*/
+			camera.Rotate(rotation, inverse);
+		}
+
+		else if(*camera.GetPitchSpeed() != 0.f) [[unlikely]]
+		{
+			float dr = (t_del * (*camera.GetPitchSpeed()))/2.f;
+			vmath::vec3 localx(camera.GetLeftVector());
+
+			localx = vmath::normalize(localx);
+			pitchrot[0] = localx[0] * sin(dr * PI/180.f);
+			pitchrot[1] = localx[1] * sin(dr * PI/180.f);
+			pitchrot[2] = localx[2] * sin(dr * PI/180.f);
+			pitchrot[3] = cos(dr * PI/180.f);
+			invpitchrot = pitchrot.inverse();
+			camera.Rotate(pitchrot, invpitchrot);
+		}
+		camera.Move(camera.GetVelocity() * t_del);
+		camera.LookAtTarget();//(vmath::vec3(0.f, 0.f, 0.f));
+
+		//snprintf(titlebuf, 512, "frame time: %fs", t_del);
+		//glfwSetWindowTitle(window, titlebuf);
 	}
 
 	printf("Terminating!\n");

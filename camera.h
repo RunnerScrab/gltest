@@ -11,6 +11,7 @@ public:
 	void Move(const vmath::vec3& offset)
 	{
 		m_eye += offset;
+		m_target += offset;
 	}
 
        	void Rotate(const vmath::Tquaternion<float>& rotation,
@@ -18,7 +19,9 @@ public:
 
 	void SetPosition(const vmath::vec3& pos)
 	{
+		m_target -= m_eye;
 		m_eye = pos;
+		m_target += m_eye;
 	}
 
 	void SetUp(const vmath::vec3& up)
@@ -26,11 +29,13 @@ public:
 		m_up = up;
 	}
 
-	void LookAt(const vmath::vec3& target)
+	vmath::vec3 GetUpVector()
 	{
-		m_target = target;
-		m_view = vmath::lookat(m_eye, m_target, m_up);
+		return m_up;
 	}
+
+	void LookAt(const vmath::vec3& target);
+	void LookAtTarget();
 
 	const vmath::mat4& GetViewTransform() const
 	{
@@ -47,15 +52,32 @@ public:
 		return m_velocity;
 	}
 
-	float* GetRotSpeed()
+	const vmath::vec3 GetLookVector()
 	{
-		return &m_radians_ps;
+		//return m_forward;
+		return vmath::normalize(m_target - m_eye);
+	}
+
+	const vmath::vec3& GetLeftVector()
+	{
+		return m_left;
+	}
+
+	//Separate yaw and pitch speeds are kinda dumb
+	float* GetYawSpeed()
+	{
+		return &m_yawspeed;
+	}
+
+	float* GetPitchSpeed()
+	{
+		return &m_pitchspeed;
 	}
 private:
-	vmath::vec3 m_up, m_target, m_eye, m_velocity;
+	vmath::vec3 m_up, m_left, m_forward, m_target, m_eye, m_velocity;
 	vmath::mat4 m_view, m_proj;
 	float m_zfar, m_znear;
-	float m_radians_ps;
+	float m_yawspeed, m_pitchspeed;
 };
 
 

@@ -676,12 +676,12 @@ namespace vmath
 			return m;
 		}
 
-		/*
-		  inline T length() const
-		  {
-		  return vmath::length( Tvec4<T>(r, v) );
-		  }
-		*/
+
+		inline T length() const
+		{
+			return vmath::length( Tvec4<T>(r, v) );
+		}
+
 
 	private:
 		union
