@@ -81,6 +81,12 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
 	switch(key)
 	{
+	case GLFW_KEY_SPACE:
+		cam_velocity = bPress ? (speed * vmath::vec3(0.f, 1.f, 0.f)) : (0.f * cam_velocity);
+		break;
+	case GLFW_KEY_LEFT_CONTROL:
+		cam_velocity = bPress ? (-speed * vmath::vec3(0.f, 1.f, 0.f)) : (0.f * cam_velocity);
+		break;
 	case GLFW_KEY_D:
 		*(pCam->GetYawSpeed()) = bPress ? -rspeed : 0.f;
 		break;
@@ -94,18 +100,16 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		cam_velocity = bPress ? (-speed * pCam->GetLookVector()) : (0.f * cam_velocity);
 		break;
 	case GLFW_KEY_E:
-		//cam_velocity[1] = bPress ? speed : 0.f;
 		*(pCam->GetPitchSpeed()) = bPress ? -rspeed : 0.f;
 		break;
 	case GLFW_KEY_Q:
-		//cam_velocity[1] = bPress ? -speed : 0.f;
 		*(pCam->GetPitchSpeed()) = bPress ? rspeed : 0.f;
 		break;
 	case GLFW_KEY_F:
 		pStars->AddVertex(vmath::vec4(0.f, 0.f, 0.f, 1.f),
 				  vmath::Tvec4<unsigned char>(255, 255, 0, 255));
 		break;
-	default:
+	default: [[likely]]
 		break;
 	}
 }
@@ -244,15 +248,19 @@ struct Planetoid
 		invrot = rot.inverse();
 
 		bool bNeg = (g_randgen.PRNG64() & 255) > 128;
-		anglerate = (PI/180.f) * (g_randgen.RandDouble(30) + 5.f) * (bNeg ? -1.f : 1.f);
+		//anglerate = (PI/180.f) * (g_randgen.RandDouble(30) + 5.f) * (bNeg ? -1.f : 1.f);
+
+
 		float first = g_randgen.RandDouble(5)/100.f + 0.02f + lasta;
 		float second = first + g_randgen.RandDouble(3)/100.f;
-
+		float avgr = (first + second) / 2.f;
+		//anglerate = (1.f / (avgr * sqrt(avgr))) * (bNeg ? -1.f : 1.f);
+		anglerate = 1/sqrt(avgr); // by Kepler's 2nd law of motion; orbital speed decreases with distance from star
 		bool bFlip = (g_randgen.PRNG64() & 255) > 128;
 		a = bFlip ? first : second;
 		b = bFlip ? second : first;
 
-		c = g_randgen.RandDouble(10)/100.f + 0.05f + lasta;//a + (g_randgen.RandDouble(10)/100.f) - 0.05f;
+		c = g_randgen.RandDouble(10)/100.f + 0.05f + lasta;
 
 		//phi = g_randgen.RandDouble(30) * (PI/180.f);
 
@@ -264,7 +272,13 @@ struct Planetoid
 		blue = cb;
 		alpha = 255;
 	}
+	void CalculatePosition(float t, vmath::vec3& offset)
+	{
+		//This takes t
+		Ellipse(&offset[0], &offset[1], &offset[2],
+			t, a, b, sx, sy, sz, rot);
 
+	}
 	void CalculateOffset(float t_del, vmath::vec3& offset)
 	{
 		float dtheta = t_del * anglerate;
@@ -276,23 +290,13 @@ struct Planetoid
 			1.f);
 
 		vmath::vec4 result = rot * off * invrot;
-		/*
-		  float off[4] = {
-		  a * -sin(t) * dtheta,
-		  0.f * dtheta,
-		  b * cos(t) * dtheta,
-		  1.f};
-		  float result[4], temp[4];
-		  sse_quat_mul(&rot[0], off, temp);
-		  sse_quat_mul(temp, &invrot[0], result);
-		*/
 		offset[0] = result[0];
 		offset[1] = result[1];
 		offset[2] = result[2];
 		t += dtheta;
 	}
 
-	float sx, sy, sz;
+	float sx, sy, sz; //Center
 	float a, b, c, phi, t, anglerate;
 	unsigned char red, green, blue, alpha;
 	vmath::Tquaternion<float> rot, invrot;
@@ -479,8 +483,8 @@ int main()
 	scene_objs.push_back(&axesobj);
 	scene_objs.push_back(&stars_obj);
 	scene_objs.push_back(&orbitsobj);
-	//scene_objs.push_back(&edges_obj);
-	//scene_objs.push_back(&planetoidobj);
+	scene_objs.push_back(&edges_obj);
+
 
 	std::vector<Vertex>& verts = planetoidobj.GetVerts();
 	while(!glfwWindowShouldClose(window))
@@ -524,11 +528,7 @@ int main()
 		if(*camera.GetYawSpeed() != 0.f) [[unlikely]]
 		{
 			float dr = (t_del * (*camera.GetYawSpeed()))/2.f;
-			rotation[1] = sin(dr * PI/180.f);
-			rotation[3] = cos(dr * PI/180.f);
-			inverse[1] = -rotation[1];
-			inverse[3] = rotation[3];
-			/*
+
 			vmath::vec3 localy(vmath::cross(camera.GetLookVector(),
 							camera.GetLeftVector()
 						   )
@@ -541,11 +541,10 @@ int main()
 			rotation[3] = cos(dr * PI/180.f);
 
 			inverse = rotation.inverse();
-			*/
 			camera.Rotate(rotation, inverse);
 		}
 
-		else if(*camera.GetPitchSpeed() != 0.f) [[unlikely]]
+		if(*camera.GetPitchSpeed() != 0.f) [[unlikely]]
 		{
 			float dr = (t_del * (*camera.GetPitchSpeed()))/2.f;
 			vmath::vec3 localx(camera.GetLeftVector());
@@ -559,10 +558,7 @@ int main()
 			camera.Rotate(pitchrot, invpitchrot);
 		}
 		camera.Move(camera.GetVelocity() * t_del);
-		camera.LookAtTarget();//(vmath::vec3(0.f, 0.f, 0.f));
-
-		//snprintf(titlebuf, 512, "frame time: %fs", t_del);
-		//glfwSetWindowTitle(window, titlebuf);
+		camera.LookAtTarget();
 	}
 
 	printf("Terminating!\n");

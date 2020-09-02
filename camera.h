@@ -74,6 +74,7 @@ public:
 		return &m_pitchspeed;
 	}
 private:
+	vmath::vec3 m_pinnedup;
 	vmath::vec3 m_up, m_left, m_forward, m_target, m_eye, m_velocity;
 	vmath::mat4 m_view, m_proj;
 	float m_zfar, m_znear;
